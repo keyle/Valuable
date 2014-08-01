@@ -1,5 +1,7 @@
-import groovyx.gpars.GParsPool
 @Grab(group = 'org.codehaus.gpars', module = 'gpars', version = '1.0.0')
+@Grapes(@Grab('org.jsoup:jsoup:1.7.3'))
+
+import groovyx.gpars.GParsPool
 import org.jsoup.Jsoup
 
 def init() {
