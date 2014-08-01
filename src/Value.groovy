@@ -15,13 +15,22 @@ def getKeyInfo(stock) {
 
     def bv = -1;
     def roe = -1;
+    def payout = 0;
 
     tds.eachWithIndex { td, i ->
+
         if (td.text() == "Book Value Per Share (mrq):") {
             bv = tds[i + 1].text().toFloat()
         }
+
         if (td.text() == "Return on Equity (ttm):") {
             roe = tds[i + 1].text().replace("%", "").toFloat()
+        }
+
+        if (td.text() == "Payout Ratio4:") {
+            def temp = tds[i + 1].text().replace("%", "").toFloat()
+            if (temp != "N/A")
+                payout = temp;
         }
     }
 
@@ -34,7 +43,7 @@ def getKeyInfo(stock) {
     // http://www.reuters.com/finance/stocks/financialHighlights?symbol=NCK.AX
 
 
-    def result = [stock:stock, bookValue:bv, roe:roe]
+    def result = [stockName: stock, bookValue: bv, roe: roe / 100, payoutRatio: payout / 100]
 
 }
 
