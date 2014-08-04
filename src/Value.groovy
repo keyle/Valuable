@@ -8,6 +8,7 @@ import java.awt.Desktop
 
 init()
 
+
 def init() {
 
     def list = []
@@ -52,27 +53,11 @@ def init() {
 
     def stocks = list ? list : ["msft", "aapl"]
 
-    // red vs green http://www.marketwatch.com/tools/futures
-
-//    def page = Jsoup.connect("http://www.nasdaq.com/markets/unusual-volume.aspx")
-//            .userAgent("Mozilla")
-//            .timeout(35000)
-//            .get()
-//
-//    def hs = page.select("h3")
-//
-//    hs.each { h ->
-//        def hh = h.text().trim()
-//        if (hh.length() > 1) {
-//            stocks.add(hh)
-//        }
-//    }
-
     def financials = []
 
     try {
         GParsPool.withPool {
-            stocks.eachParallel { stock -> financials.add(getFinancials(stock)) }
+            stocks.eachParallel { stock -> financials.add(Valuable.getFinancials(stock)) }
         }
     } catch (ignored) {
         println "Whoops, one of these didn't exist"
@@ -81,153 +66,157 @@ def init() {
     println(" ------------------------------------------------------------------------------------------------------------------------------------------")
 
 
-    financials.each { valueCompany(it) }
+    financials.each { Valuable.valueCompany(it) }
 
     sleep(400)
 }
 
-def getFinancials(stock) {
-    def page = Jsoup.connect("http://www.reuters.com/finance/stocks/financialHighlights?symbol=${stock}")
-            .userAgent("Mozilla")
-            .timeout(35000)
-            .get()
 
-    def tds = page.select("td")
+class Valuable {
 
-    def priceToBook = -1
-    def bv = -1
-    def roe = -1
-    def payout = -1
-    def tax = -1
-    def debt2equity = 0.0
-    def debt2equityIndustry = 0.0
+    static getFinancials(stock) {
+        def page = Jsoup.connect("http://www.reuters.com/finance/stocks/financialHighlights?symbol=${stock}")
+                .userAgent("Mozilla")
+                .timeout(35000)
+                .get()
 
-    def price = page.select(".sectionQuoteDetail span")[1].text().trim().toFloat()
-    assert price > 0, "Error retrieving price : ${price}"
+        def tds = page.select("td")
 
-    def stockName = page.select("h1")[0].text().split(':')[1].trim()
+        def priceToBook = -1
+        def bv = -1
+        def roe = -1
+        def payout = -1
+        def tax = -1
+        def debt2equity = 0.0
+        def debt2equityIndustry = 0.0
 
-    tds.eachWithIndex { td, i ->
+        def price = page.select(".sectionQuoteDetail span")[1].text().trim().toFloat()
+        assert price > 0, "Error retrieving price : ${price}"
 
-        if (td.text() == "Price to Book (MRQ)") {
-            def tmpbv = tds[i + 1].text()
-            if (tmpbv != "--")
-                priceToBook = tmpbv.toFloat()
-        }
+        def stockName = page.select("h1")[0].text().split(':')[1].trim()
 
-        if (td.text() == "Return on Equity (TTM)") {
-            def temp = tds[i + 1].text()
-            if (temp != "--") {
-                roe = temp.toFloat() / 100
-                roe = roe.round(4)
+        tds.eachWithIndex { td, i ->
+
+            if (td.text() == "Price to Book (MRQ)") {
+                def tmpbv = tds[i + 1].text()
+                if (tmpbv != "--")
+                    priceToBook = tmpbv.toFloat()
+            }
+
+            if (td.text() == "Return on Equity (TTM)") {
+                def temp = tds[i + 1].text()
+                if (temp != "--") {
+                    roe = temp.toFloat() / 100
+                    roe = roe.round(4)
+                }
+            }
+
+            if (td.text() == "Payout Ratio(TTM)") {
+                def temp = tds[i + 1].text()
+                if (temp != "--") {
+                    payout = temp.toFloat() / 100
+                    payout = payout.round(4)
+                }
+            }
+
+            if (td.text() == "Effective Tax Rate (TTM)") {
+                def temp = tds[i + 1].text()
+                if (temp != "--") {
+                    tax = temp.toFloat() / 100
+                    tax = tax.round(4)
+                }
+            }
+
+            if (td.text() == "Total Debt to Equity (MRQ)") {
+                def temp = tds[i + 1].text()
+                if (temp != "--") {
+                    debt2equity = temp.toFloat()
+                    debt2equity = debt2equity.round(4)
+                }
+                def temp2 = tds[i + 2].text()
+                if (temp2 != "--") {
+                    debt2equityIndustry = temp2.toFloat()
+                    debt2equityIndustry = debt2equityIndustry.round(4)
+                }
             }
         }
 
-        if (td.text() == "Payout Ratio(TTM)") {
-            def temp = tds[i + 1].text()
-            if (temp != "--") {
-                payout = temp.toFloat() / 100
-                payout = payout.round(4)
-            }
+        if (priceToBook != -1) {
+            bv = price / priceToBook
+            bv = bv.round(4)
         }
 
-        if (td.text() == "Effective Tax Rate (TTM)") {
-            def temp = tds[i + 1].text()
-            if (temp != "--") {
-                tax = temp.toFloat() / 100
-                tax = tax.round(4)
-            }
-        }
+        if (tax < 0)
+            tax = 0
 
-        if (td.text() == "Total Debt to Equity (MRQ)") {
-            def temp = tds[i + 1].text()
-            if (temp != "--") {
-                debt2equity = temp.toFloat()
-                debt2equity = debt2equity.round(4)
-            }
-            def temp2 = tds[i + 2].text()
-            if (temp2 != "--") {
-                debt2equityIndustry = temp2.toFloat()
-                debt2equityIndustry = debt2equityIndustry.round(4)
-            }
-        }
+        if (payout < 0)
+            payout = 0
+
+        if (bv < 0)
+            bv = 0
+
+        if (roe < 0)
+            roe = 0
+
+        if (roe > 0.99)
+            roe = 0.99
+
+
+        def result = [stock: stock, bv: bv, roe: roe, payout: payout, tax: tax, price: price,
+                      name : stockName, debtRatio: debt2equity, debtIndustry: debt2equityIndustry]
+
+        result = getOpinions(result, stock)
+
+        println result
+
+        return result
     }
 
-    if (priceToBook != -1) {
-        bv = price / priceToBook
-        bv = bv.round(4)
-    }
+    static getOpinions(financialResults, stock) {
 
-    if (tax < 0)
-        tax = 0
+        def page = Jsoup.connect("http://www.reuters.com/finance/stocks/analyst?symbol=${stock}")
+                .userAgent("Mozilla")
+                .timeout(35000)
+                .get()
 
-    if (payout < 0)
-        payout = 0
+        def tds = page.select("td")
 
-    if (bv < 0)
-        bv = 0
+        def current = 0.0, past = 0.0
 
-    if (roe < 0)
-        roe = 0
-
-    if (roe > 0.99)
-        roe = 0.99
-
-
-    def result = [stock: stock, bv: bv, roe: roe, payout: payout, tax: tax, price: price,
-                  name : stockName, debtRatio: debt2equity, debtIndustry: debt2equityIndustry]
-
-    result = getOpinions(result, stock)
-
-    println result
-
-    return result
-}
-
-def getOpinions(financialResults, stock) {
-
-    def page = Jsoup.connect("http://www.reuters.com/finance/stocks/analyst?symbol=${stock}")
-            .userAgent("Mozilla")
-            .timeout(35000)
-            .get()
-
-    def tds = page.select("td")
-
-    def current = 0.0, past = 0.0
-
-    tds.eachWithIndex { td, i ->
-        if (td.text() == "Mean Rating") {
-            def temp = tds[i + 1].text()
-            if (temp != "--") {
-                current = temp.toFloat().round(4)
-            }
-            def temp2 = tds[i + 1].text()
-            if (temp2 != "--") {
-                past = temp.toFloat().round(4)
+        tds.eachWithIndex { td, i ->
+            if (td.text() == "Mean Rating") {
+                def temp = tds[i + 1].text()
+                if (temp != "--") {
+                    current = temp.toFloat().round(4)
+                }
+                def temp2 = tds[i + 1].text()
+                if (temp2 != "--") {
+                    past = temp.toFloat().round(4)
+                }
             }
         }
+
+        financialResults.opinionNow = current
+        financialResults.opinion1m = past
+
+        return financialResults
     }
 
-    financialResults.opinionNow = current
-    financialResults.opinion1m = past
 
-    return financialResults
+    static valueCompany(c) {
+
+        def IRR = (c.roe * (1 - c.payout)) + (c.roe * c.payout * (1 - c.tax))
+        def RR = 0.08
+        def val = c.bv * (IRR / RR) * Math.pow(1 + IRR - RR, 5)
+        val = val.round(2)
+
+        def diff = val / c.price
+        diff = diff.round(2)
+
+        printf "| %-35.35s | valued at %7.2f | currently %7.2f | %5.2fx | %6.2f / %6.2f debt%%/indu | %4.2f <- %4.2f Opinion |\n", c.name, val, c.price, diff, c.debtRatio, c.debtIndustry, c.opinionNow, c.opinion1m
+    }
 }
 
-
-def valueCompany(c) {
-
-    def IRR = (c.roe * (1 - c.payout)) + (c.roe * c.payout * (1 - c.tax))
-    def RR = 0.08
-    def val = c.bv * (IRR / RR) * Math.pow(1 + IRR - RR, 5)
-    val = val.round(2)
-
-    def diff = val / c.price
-    diff = diff.round(2)
-
-    printf "| %-35.35s | valued at %7.2f | currently %7.2f | %5.2fx | %6.2f / %6.2f debt%%/indu | %4.2f <- %4.2f Opinion |\n", c.name, val, c.price, diff, c.debtRatio, c.debtIndustry, c.opinionNow, c.opinion1m
-
-}
 
 def printHelp() {
     println "\n  -s stock: for valuation" +
